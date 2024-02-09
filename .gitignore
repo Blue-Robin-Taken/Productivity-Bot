@@ -3,3 +3,5 @@ Scripts
 Lib
 .idea
 pyvenv.cfg
+*.db
+*.db-journal

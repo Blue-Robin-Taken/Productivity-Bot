@@ -2,6 +2,7 @@
 import discord
 import os
 
+
 # --- Basic Setup ---
 bot = discord.Bot()
 
