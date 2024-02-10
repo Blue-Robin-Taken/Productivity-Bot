@@ -6,3 +6,5 @@ pyvenv.cfg
 *.db
 *.db-journal
 */__pycache__
+/venv
+todo.db
