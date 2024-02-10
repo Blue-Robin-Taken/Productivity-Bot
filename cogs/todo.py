@@ -51,7 +51,7 @@ class AddItemModal(Modal):  # https://guide.pycord.dev/interactions/ui-component
         super().__init__(InputText(style=InputTextStyle.short, label="title", placeholder="Input a title here"),
                          InputText(style=InputTextStyle.long, label="description",
                                    placeholder="Input a description here"),
-                         title="Add an item to the to-do list",)
+                         title="Add an item to the to-do list", )
         self.message = message  # message to edit after new cards/things were added
         self.title = title  # the title of the specific to-do list to link back to the user
 
@@ -94,7 +94,7 @@ class ToDo(commands.Cog):
     @to_do_group.command()
     async def create(self, ctx,
                      name: discord.Option(description="The name for your to-do list.", required=True, min_length=1,
-                                          max_length=10),
+                                          max_length=25),
                      description: discord.Option(description="The description for your to-do list", required=False)):
         if not description:  # if description is empty
             description = "No description provided."
@@ -111,7 +111,7 @@ class ToDo(commands.Cog):
         # -- Creating the new list --
         cur.execute(f"""INSERT INTO tablesList 
         VALUES ('{name}', '{description}', {ctx.user.id});""")
-        self.con.commit()  # save changes
+        con.commit()  # save changes
 
         # -- Create responses --
         await ctx.respond(f"Created the list `{name}`!")
@@ -121,7 +121,24 @@ class ToDo(commands.Cog):
     async def get(self, ctx,
                   name: discord.Option(str, autocomplete=getAllToDoLists,
                                        description="The name for your to-do list.")):
-        await ctx.respond(embed=await self.getTableEmbed(title=name, user_id=ctx.user.id), view=ToDoListButtonsUI(title=name))
+        await ctx.respond(embed=await self.getTableEmbed(title=name, user_id=ctx.user.id),
+                          view=ToDoListButtonsUI(title=name))
+
+    @to_do_group.command()
+    async def delete_all_lists(self, ctx):
+        button = Button(style=discord.ButtonStyle.danger, label="Yes", emoji="❌")
+
+        async def button_callback(interaction):
+            interaction.response.send_message("Deleting all of your to-do lists.")
+
+        button.callback = button_callback
+
+        class ConfirmView(View):
+            def __init__(self):
+                super().__init__()
+                self.add_item(button)
+
+        await ctx.respond(embed=discord.Embed(title="Are you sure you want to do this?"), view=ConfirmView)
 
 
 def setup(bot):
