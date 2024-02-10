@@ -5,6 +5,8 @@ from discord.ext import commands
 import sqlite3
 from discord.ui import View, Button, Modal, InputText
 from discord import InputTextStyle
+import datetime
+import time
 
 # --- SQL startup ---
 
@@ -33,7 +35,9 @@ async def getAllToDoLists(ctx):
         # -- Narrowing down search options by checking if it's a subset --
 
         for item in options_list:
-            if all(elem in list(item.name.lower()) for elem in list(ctx.value.lower())):  # https://stackoverflow.com/questions/3931541/how-to-check-if-all-of-the-following-items-are-in-a-list
+            if all(elem in list(item.name.lower()) for elem in
+                   list(
+                       ctx.value.lower())):  # https://stackoverflow.com/questions/3931541/how-to-check-if-all-of-the-following-items-are-in-a-list
                 return_list.append(item.name)
 
         return return_list
@@ -74,7 +78,7 @@ class AddItemModal(Modal):  # https://guide.pycord.dev/interactions/ui-component
 
         # --- Feedback to user ---
         await self.message.edit(embed=await ToDo.getTableEmbed(title=self.title, user_id=interaction.user.id))
-        await interaction.response.send_message("Added item")
+        await interaction.response.send_message(f"Added item `{self.children[0].value}`", ephemeral=True)
 
 
 # --- Main Cog ---
@@ -136,20 +140,55 @@ class ToDo(commands.Cog):
 
     @to_do_group.command()
     async def delete_all_lists(self, ctx):
-        button = Button(style=discord.ButtonStyle.danger, label="Yes", emoji="❌")
+        button = Button(style=discord.ButtonStyle.danger, label="Yes", emoji="🚮")
+        view = View(disable_on_timeout=True, timeout=60)
+        view.add_item(button)
 
         async def button_callback(interaction):
-            interaction.response.send_message("Deleting all of your to-do lists.")
+            await interaction.response.defer()
+            view.disable_all_items()
+            await interaction.edit_original_response(view=view)
+            start_time = time.time()  # Use this to calculate the time it took later
+
+            ref = cur.execute(
+                f"SELECT * FROM tablesList WHERE user_id={interaction.user.id}")
+            listsToBeDeleted = ref.fetchall()
+            listsToBeDeletedText = ''.join(i[0] + '\n' for i in listsToBeDeleted)
+
+            # -- First response --
+            unfinished_embed = discord.Embed(
+                title="Deleting... 💭",
+                description=f"Deleting the following: \n {listsToBeDeletedText}",
+                color=discord.Color.yellow()
+            )
+            followup_response = await interaction.followup.send(embed=unfinished_embed, ephemeral=True)
+
+            # -- Deleting from the database
+            cur.execute(
+                f"DELETE FROM tablesList WHERE user_id={interaction.user.id}")  # delete from to-do list database
+            cur.execute(
+                f"DELETE FROM todoListItems WHERE user_id={interaction.user.id}")  # delete from the items for those to-dos
+            con.commit()
+
+            finished_embed = discord.Embed(
+                title="Done deleting! ✔",
+                description=f"Deleted the following: \n {listsToBeDeletedText}",
+                color=discord.Color.green()
+            )
+
+            # -- Calculate the time it took --
+            end_time = time.time() - start_time
+            print(end_time)
+            finished_embed.add_field(name="Took the following time:", value=str(end_time * 1000) + " Milliseconds")
+
+            await followup_response.edit(embed=finished_embed)
 
         button.callback = button_callback
 
-        class ConfirmView(View):
-            def __init__(self):
-                super().__init__()
-                self.add_item(button)
-
-        await ctx.respond(embed=discord.Embed(title="Are you sure you want to do this?"), view=ConfirmView)
+        await ctx.respond(embed=discord.Embed(title="Are you sure you want to do this?", color=discord.Color.red()),
+                          view=view, ephemeral=True)
 
 
+# --- Other Cog Setup ---
 def setup(bot):
     bot.add_cog(ToDo(bot))
