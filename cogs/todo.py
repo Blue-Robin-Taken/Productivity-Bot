@@ -27,7 +27,17 @@ except sqlite3.OperationalError:
 async def getAllToDoLists(ctx):
     ref = cur.execute(f"""SELECT * FROM tablesList WHERE user_id={ctx.interaction.user.id}""")
     ref_fetch = ref.fetchall()
-    return [discord.OptionChoice(name=item[0]) for item in ref_fetch]
+    options_list = [discord.OptionChoice(name=item[0]) for item in ref_fetch]
+    return_list = []
+    if ctx.value:
+        # -- Narrowing down search options by checking if it's a subset --
+
+        for item in options_list:
+            if all(elem in list(item.name.lower()) for elem in list(ctx.value.lower())):  # https://stackoverflow.com/questions/3931541/how-to-check-if-all-of-the-following-items-are-in-a-list
+                return_list.append(item.name)
+
+        return return_list
+    return options_list
 
 
 # --- Item Related Classes ---
