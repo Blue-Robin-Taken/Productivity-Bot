@@ -6,29 +6,64 @@ import sqlite3
 from discord.ui import View, Button, Modal, InputText
 from discord import InputTextStyle
 
+# --- SQL startup ---
+
+con = sqlite3.connect("todo.db")
+cur = con.cursor()
+try:
+    cur.execute("CREATE TABLE tablesList(title, description, user_id)")
+    print("Created new tablesList table for ToDo")
+except sqlite3.OperationalError:
+    print("Found existing table for ToDo")
+try:
+    cur.execute("CREATE TABLE todoListItems(title, user_id, item_name, item_description)")
+    # Order: title of the database, user's id, the item's name, the item's description
+    print("Created new todoListItems table for ToDo")
+except sqlite3.OperationalError:
+    print("Found existing table for ToDo")
+
+
+# --- Non Class Static Funcs ---
+async def getAllToDoLists(ctx):
+    ref = cur.execute(f"""SELECT * FROM tablesList WHERE user_id={ctx.interaction.user.id}""")
+    ref_fetch = ref.fetchall()
+    return [discord.OptionChoice(name=item[0]) for item in ref_fetch]
+
 
 # --- Item Related Classes ---
 class AddItemButton(Button):
-    def __init__(self, ):
+    def __init__(self, title):
         super().__init__(style=discord.ButtonStyle.blurple, label="Add Item", emoji="➕")
+        self.title = title
 
     async def callback(self, interaction):
-
-        await interaction.response.send_modal(AddItemModal())
+        await interaction.response.send_modal(AddItemModal(message=self.view.message, title=self.title))
 
 
 class ToDoListButtonsUI(View):
-    def __init__(self, ):
-        super().__init__()
-        self.add_item(AddItemButton())
+    def __init__(self, title):
+        super().__init__(timeout=600, disable_on_timeout=True)  # timeout is in seconds, so 600 = 10 minutes
+        self.add_item(AddItemButton(title=title))
 
 
 class AddItemModal(Modal):  # https://guide.pycord.dev/interactions/ui-components/modal-dialogs
-    def __init__(self):
+    def __init__(self, message, title):
         super().__init__(InputText(style=InputTextStyle.short, label="title", placeholder="Input a title here"),
-                         title="Add an item to the to-do list")
+                         InputText(style=InputTextStyle.long, label="description",
+                                   placeholder="Input a description here"),
+                         title="Add an item to the to-do list",)
+        self.message = message  # message to edit after new cards/things were added
+        self.title = title  # the title of the specific to-do list to link back to the user
 
     async def callback(self, interaction):
+        print([i.value for i in self.children])
+        cur.execute(f"""INSERT INTO todoListItems
+        VALUES (?, ?, ?, ?);""", (self.title, interaction.user.id, self.children[0].value, self.children[1].value))
+        #  https://stackoverflow.com/questions/45575608/python-sqlite-operationalerror-near-s-syntax-error
+        con.commit()  # save changes
+
+        # --- Feedback to user ---
+        await self.message.edit(embed=await ToDo.getTableEmbed(title=self.title, user_id=interaction.user.id))
         await interaction.response.send_message("Added item")
 
 
@@ -37,31 +72,18 @@ class ToDo(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # --- SQL startup ---
-
-    con = sqlite3.connect("todo.db")
-    cur = con.cursor()
-    try:
-        cur.execute("CREATE TABLE tablesList(title, description, user_id)")
-        print("Created new tablesList table for ToDo")
-    except sqlite3.OperationalError:
-        print("Found existing table for ToDo")
-    try:
-        cur.execute("CREATE TABLE todoListItems(title, user_id, item_name, item_description)")
-        print("Created new todoListItems table for ToDo")
-    except sqlite3.OperationalError:
-        print("Found existing table for ToDo")
-
     # --- Static commands ---
 
-    async def getTableEmbed(self, title, user_id: int):
-        ref = self.cur.execute(f"""SELECT * FROM todoListItems WHERE title='{title}' AND user_id={user_id}""")
+    @staticmethod
+    async def getTableEmbed(title, user_id: int):
+        ref = cur.execute(f"""SELECT * FROM todoListItems WHERE title='{title}' AND user_id={user_id}""")
         ref_fetch = ref.fetchall()
 
-        return_embed = discord.Embed(title=title)
+        return_embed = discord.Embed(title=title, color=discord.Color.random())
+        print(ref_fetch)
         if ref_fetch:
             for item in ref_fetch:
-                return_embed.add_field(name=item[0], value=item[1])
+                return_embed.add_field(name=item[2], value=item[3], inline=False)
 
         return return_embed
 
@@ -78,7 +100,7 @@ class ToDo(commands.Cog):
             description = "No description provided."
 
         # -- If there is already a title with that same name and user --
-        ref = self.cur.execute(f"""SELECT * FROM tablesList
+        ref = cur.execute(f"""SELECT * FROM tablesList
         WHERE title = '{name}' AND user_id={ctx.user.id};""")
         fetch_one = ref.fetchone()
 
@@ -87,13 +109,19 @@ class ToDo(commands.Cog):
                 "You already have a to-do list of this name. Please delete that first before creating one of the same name.")
 
         # -- Creating the new list --
-        self.cur.execute(f"""INSERT INTO tablesList 
+        cur.execute(f"""INSERT INTO tablesList 
         VALUES ('{name}', '{description}', {ctx.user.id});""")
         self.con.commit()  # save changes
 
         # -- Create responses --
         await ctx.respond(f"Created the list `{name}`!")
-        await ctx.channel.send(embed=await self.getTableEmbed(name, ctx.user.id), view=ToDoListButtonsUI())
+        await ctx.channel.send(embed=await self.getTableEmbed(name, ctx.user.id), view=ToDoListButtonsUI(title=name))
+
+    @to_do_group.command()
+    async def get(self, ctx,
+                  name: discord.Option(str, autocomplete=getAllToDoLists,
+                                       description="The name for your to-do list.")):
+        await ctx.respond(embed=await self.getTableEmbed(title=name, user_id=ctx.user.id), view=ToDoListButtonsUI(title=name))
 
 
 def setup(bot):
