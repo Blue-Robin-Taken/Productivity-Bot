@@ -33,7 +33,6 @@ async def getAllToDoLists(ctx):
         # -- Narrowing down search options by checking if it's a subset --
 
         for item in options_list:
-            print(set(list(item.name.lower())), set(list(ctx.value.lower())))
             if all(elem in list(item.name.lower()) for elem in list(ctx.value.lower())):  # https://stackoverflow.com/questions/3931541/how-to-check-if-all-of-the-following-items-are-in-a-list
                 return_list.append(item.name)
 
