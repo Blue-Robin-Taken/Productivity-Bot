@@ -3,9 +3,8 @@
 import discord
 from discord.ext import commands
 import sqlite3
-from discord.ui import View, Button, Modal, InputText
-from discord import InputTextStyle
-import datetime
+from discord.ui import View, Button, Modal, InputText, Select
+from discord import InputTextStyle, SelectOption
 import time
 
 # --- SQL startup ---
@@ -44,6 +43,49 @@ async def getAllToDoLists(ctx):
     return options_list
 
 
+def shortenLength(input_string: str, length: int):
+    if len(input_string) > length:
+        return str(input_string[0:length])
+    return str(input_string)
+
+
+async def checkTitle(title: str, user_id: int):
+    """
+    This function checks the title of an input and checks if it's in the database with that user.
+    """
+    title = title.strip()
+    ref = cur.execute(f"""SELECT * FROM tablesList
+    WHERE title = '{title}' AND user_id={user_id};""")
+    fetch_one = ref.fetchone()
+
+    return fetch_one  # Will return either None or the fetch if it exists
+
+
+async def itemsExistInList(title: str, user_id: int):
+    """
+    Checks if there are items under a to-do list
+    """
+    ref = cur.execute(f"""SELECT * FROM todoListItems
+    WHERE title = '{title}' AND user_id={user_id};""")
+    fetch_one = ref.fetchall()
+
+    return fetch_one  # Will return either None or the fetch if it exists
+
+
+async def checkItem(item_name: str, user_id: int):
+    """
+    This function checks the item name with the user's id in the items database to see if it exists.
+    If it does exist it returns that row. Else, it returns None.
+    """
+
+    item_name = item_name.strip()
+    ref = cur.execute(f"""SELECT * FROM todoListItems
+    WHERE title = '{item_name}' AND user_id={user_id};""")
+    fetch_one = ref.fetchone()
+
+    return fetch_one  # Will return either None or the fetch if it exists
+
+
 # --- Item Related Classes ---
 class AddItemButton(Button):
     def __init__(self, title):
@@ -60,17 +102,44 @@ class ToDoListButtonsUI(View):
         self.add_item(AddItemButton(title=title))
 
 
+class ItemDeleteSelect(Select):
+    def __init__(self, user_id, title):
+        # -- Generate options --
+        options_ref = cur.execute(f"SELECT * FROM todoListItems WHERE title='{title}' AND user_id={user_id}")
+        fetch_all = options_ref.fetchall()
+        options = [SelectOption(label=shortenLength(option[2], 100), description=shortenLength(option[3], 100)) for
+                   option in fetch_all]
+
+        # -- Calculate the max amount of select so that there's at most 25 or the length of the options --
+        max_amount = 25
+        if len(options) < 25:
+            max_amount = len(options)
+
+        # -- Set super --
+        super().__init__(options=options, min_values=1, max_values=max_amount)
+
+    async def callback(self, interaction):
+        print(self.values)
+        await interaction.response.send_message(self.values)
+
+
 class AddItemModal(Modal):  # https://guide.pycord.dev/interactions/ui-components/modal-dialogs
     def __init__(self, message, title):
-        super().__init__(InputText(style=InputTextStyle.short, label="title", placeholder="Input a title here"),
-                         InputText(style=InputTextStyle.long, label="description",
-                                   placeholder="Input a description here"),
-                         title="Add an item to the to-do list", )
+        super().__init__(
+            InputText(style=InputTextStyle.short, label="title", placeholder="Input a title here", max_length=100),
+            InputText(style=InputTextStyle.long, label="description",
+                      placeholder="Input a description here", max_length=1024, min_length=1),
+            title="Add an item to the to-do list", )
         self.message = message  # message to edit after new cards/things were added
         self.title = title  # the title of the specific to-do list to link back to the user
 
     async def callback(self, interaction):
-        print([i.value for i in self.children])
+        # -- Check if input is valid and does not exist already --
+        fetch_one = await checkItem(item_name=self.children[0].value, user_id=interaction.user.id)
+
+        if fetch_one:
+            return await interaction.response.send_message("You already have an item with that name!", ephemeral=True)
+
         cur.execute(f"""INSERT INTO todoListItems
         VALUES (?, ?, ?, ?);""", (self.title, interaction.user.id, self.children[0].value, self.children[1].value))
         #  https://stackoverflow.com/questions/45575608/python-sqlite-operationalerror-near-s-syntax-error
@@ -90,11 +159,12 @@ class ToDo(commands.Cog):
 
     @staticmethod
     async def getTableEmbed(title, user_id: int):
+        ref = cur.execute(f"""SELECT * FROM tablesList WHERE title='{title}' AND user_id={user_id}""")
+        description = ref.fetchone()[1]
+
+        return_embed = discord.Embed(title=title, description=description, color=discord.Color.random())
         ref = cur.execute(f"""SELECT * FROM todoListItems WHERE title='{title}' AND user_id={user_id}""")
         ref_fetch = ref.fetchall()
-
-        return_embed = discord.Embed(title=title, color=discord.Color.random())
-        print(ref_fetch)
         if ref_fetch:
             for item in ref_fetch:
                 return_embed.add_field(name=item[2], value=item[3], inline=False)
@@ -114,9 +184,7 @@ class ToDo(commands.Cog):
             description = "No description provided."
 
         # -- If there is already a title with that same name and user --
-        ref = cur.execute(f"""SELECT * FROM tablesList
-        WHERE title = '{name}' AND user_id={ctx.user.id};""")
-        fetch_one = ref.fetchone()
+        fetch_one = await checkTitle(title=name, user_id=ctx.user.id)
 
         if fetch_one:
             return await ctx.respond(
@@ -129,7 +197,36 @@ class ToDo(commands.Cog):
 
         # -- Create responses --
         await ctx.respond(f"Created the list `{name}`!")
-        await ctx.channel.send(embed=await self.getTableEmbed(name, ctx.user.id), view=ToDoListButtonsUI(title=name))
+        await ctx.channel.send(embed=await self.getTableEmbed(name, ctx.user.id),
+                               view=ToDoListButtonsUI(title=name))
+
+    remove_subgroup = to_do_group.create_subgroup(name="remove")
+
+    @remove_subgroup.command()
+    async def item(self, ctx,
+                   name: discord.Option(str, autocomplete=getAllToDoLists,
+                                        description="The name for your to-do list.")):
+        # -- Check for improper inputs --
+        fetch_one = await checkTitle(title=name, user_id=ctx.user.id)
+
+        if not fetch_one:
+            return await ctx.respond("That to-do list does not exist!", ephemeral=True)
+
+        fetch_one = await itemsExistInList(title=name, user_id=ctx.user.id)
+
+        if not fetch_one:
+            return await ctx.respond("You don't have any items in this to-do list!", ephemeral=True)
+
+        # -- Create response for correct input --
+        embed = discord.Embed(
+            title="What items do you want to remove?",
+            description="Select one or more items to remove from your to-do list.",
+            color=discord.Color.dark_red()
+        )
+
+        view = View()
+        view.add_item(ItemDeleteSelect(user_id=ctx.user.id, title=name))
+        await ctx.respond(embed=embed, view=view)
 
     @to_do_group.command()
     async def get(self, ctx,
