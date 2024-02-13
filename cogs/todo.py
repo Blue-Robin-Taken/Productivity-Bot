@@ -119,8 +119,19 @@ class ItemDeleteSelect(Select):
         super().__init__(options=options, min_values=1, max_values=max_amount)
 
     async def callback(self, interaction):
-        print(self.values)
-        await interaction.response.send_message(self.values)
+        await interaction.response.defer()
+        for value in self.values:
+            cur.execute(f"DELETE FROM todoListItems WHERE title='{str(value)}' AND user_id={interaction.user.id}")
+            con.commit()
+        deletions = "\n".join(self.values)
+        embed = discord.Embed(
+            title="Deletion successful!",
+            description=f"Deleted the following: {deletions}",
+            color=discord.Color.green()
+        )
+        self.view.disable_all_items()
+        await self.view.message.edit(view=self.view)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class AddItemModal(Modal):  # https://guide.pycord.dev/interactions/ui-components/modal-dialogs
