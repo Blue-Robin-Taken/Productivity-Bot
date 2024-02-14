@@ -169,8 +169,9 @@ class ItemDeleteSelect(Select):
     async def callback(self, interaction):
         await interaction.response.defer()
         for value in self.values:
-            cur.execute(f"DELETE FROM todoListItems WHERE title='{str(value)}' AND user_id={interaction.user.id}")
-            con.commit()
+            print(value)
+            cur.execute(f"DELETE FROM todoListItems WHERE item_name=? AND user_id=?", (str(value), interaction.user.id))
+        con.commit()
         deletions = "\n".join(self.values)
         embed = discord.Embed(
             title="Deletion successful!",
