@@ -1,77 +1,45 @@
 import discord
 from discord.ext import commands
-from discord.ui import View, Button, Modal, InputText
-from discord import InputTextStyle
-
-import sqlite3
+# from discord.ui import View, Button, Modal, InputText
+# from discord import InputTextStyle
 import asyncio
-import os
 
+SECONDS_PER_OPTION = {
+    'seconds': 1,
+    'minutes': 60,
+    'hours': 3600,
+    'days': 86400,
+    'weeks': 604800
+}
 
-def embed_create(title, description, color, field_name=None, field_value=None):
-    if field_name is None:
-        em = discord.Embed(title=title, description=description, color=color)
-
-        return em
-    else:
-        em = discord.Embed(title=title, description=description, color=color)
-        em.add_field(name=field_name, value=field_value)
-
-        return em
+# def checkIfTimerStopped():
 
 
 class Timers(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        print('Timer Loaded')
-
     timer_group = discord.SlashCommandGroup('timer')
 
     @timer_group.command()
-    async def create(self, ctx, *,
-                     length: discord.Option(description="The length of the timer", required=True,
-                                            min_length=1)):
-        if "s" in length:
-            a = length.split("s")[0]
-            em = embed_create(title="Timer",
-                              description=f"Your timer of {a} second(s) has been created.",
-                              color=ctx.author.color)
-            await ctx.respond(embed=em)
-            await asyncio.sleep(int(a))
-            em = embed_create(title="Timer",
-                              description=f"{ctx.author.mention}, your timer is finished!",
-                              color=ctx.author.color)
-            await ctx.respond(embed=em)
-        elif "m" in length:
-            a = length.split("m")[0]
-            em = embed_create(title="Timer",
-                              description=f"Your timer of {a} minute(s) has been created.",
-                              color=ctx.author.color)
-            await ctx.respond(embed=em)
-            await asyncio.sleep(int(a) * 60)
-            em = embed_create(title="Timer",
-                              description=f"{ctx.author.mention}, your timer is finished!",
-                              color=ctx.author.color)
-            await ctx.respond(embed=em)
-        elif "h" in length:
-            a = length.split("h")[0]
-            em = embed_create(title="Timer",
-                              description=f"Your timer of {a} hour(s) has been created.",
-                              color=ctx.author.color)
-            await ctx.respond(embed=em)
-            await asyncio.sleep(int(a) * 3600)
-            em = embed_create(title="Timer",
-                              description=f"{ctx.author.mention}, your timer is finished!",
-                              color=ctx.author.color)
-            await ctx.respond(embed=em)
-        else:
-            em = embed_create(title="Invalid Timer",
-                              description=f"Invalid Parameters. Try 1s, 1m, 1h",
-                              color=ctx.author.color)
-            await ctx.respond(embed=em)
+    async def create(self, ctx, seconds: discord.Option(int, required=False) = 0,
+                     minutes: discord.Option(int, required=False) = 0,
+                     hours: discord.Option(int, required=False) = 0,
+                     days: discord.Option(int, required=False) = 0,
+                     weeks: discord.Option(int, required=False) = 0):
+        # -- Check if no time selected --
+        if not (seconds or minutes or hours or days or weeks):
+            return await ctx.respond("You have to select a time!", ephemeral=True)
+
+        await ctx.respond("Your timer has started!", ephemeral=True)
+        # -- Create timer loop --
+        time = seconds + minutes * SECONDS_PER_OPTION['minutes'] + hours * SECONDS_PER_OPTION['hours'] + days * SECONDS_PER_OPTION['days'] + weeks * SECONDS_PER_OPTION['weeks']
+        while True:
+            time -= 1
+            await asyncio.sleep(1)  # Check every second
+
+            if time <= 0:
+                return await ctx.channel.send(f"{ctx.user.mention} Your timer has ended!")
 
 
 def setup(bot):

@@ -169,7 +169,6 @@ class ItemDeleteSelect(Select):
     async def callback(self, interaction):
         await interaction.response.defer()
         for value in self.values:
-            print(value)
             cur.execute(f"DELETE FROM todoListItems WHERE item_name=? AND user_id=?", (str(value), interaction.user.id))
         con.commit()
         deletions = "\n".join(self.values)
@@ -322,7 +321,7 @@ class ToDo(commands.Cog):
 
             # -- Calculate the time it took --
             end_time = time.time() - start_time
-            print(end_time)
+
             finished_embed.add_field(name="Took the following time:", value=str(end_time * 1000) + " Milliseconds")
 
             await followup_response.edit(embed=finished_embed)
