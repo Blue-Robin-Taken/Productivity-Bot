@@ -25,6 +25,21 @@ except sqlite3.OperationalError:
 
 
 # --- Non Class Static Funcs ---
+
+async def getTableEmbed(title, user_id: int):
+    ref = cur.execute(f"""SELECT * FROM tablesList WHERE title='{title}' AND user_id={user_id}""")
+    description = ref.fetchone()[1]
+
+    return_embed = discord.Embed(title=title, description=description, color=discord.Color.random())
+    ref = cur.execute(f"""SELECT * FROM todoListItems WHERE title='{title}' AND user_id={user_id}""")
+    ref_fetch = ref.fetchall()
+    if ref_fetch:
+        for item in ref_fetch:
+            return_embed.add_field(name=item[2], value=item[3], inline=False)
+
+    return return_embed
+
+
 async def getAllToDoLists(ctx):
     ref = cur.execute(f"""SELECT * FROM tablesList WHERE user_id={ctx.interaction.user.id}""")
     ref_fetch = ref.fetchall()
@@ -61,7 +76,7 @@ async def checkTitle(title: str, user_id: int):
     return fetch_one  # Will return either None or the fetch if it exists
 
 
-async def itemsExistInList(title: str, user_id: int):
+def itemsExistInList(title: str, user_id: int):
     """
     Checks if there are items under a to-do list
     """
@@ -95,11 +110,40 @@ class AddItemButton(Button):
     async def callback(self, interaction):
         await interaction.response.send_modal(AddItemModal(message=self.view.message, title=self.title))
 
+        await self.view.message.edit(view=self.view)
+
+
+class RemoveItemButton(Button):
+    """
+    This class is for prompting the remove select menu
+    """
+    def __init__(self, title):
+        super().__init__(emoji="✖", style=discord.ButtonStyle.danger, label="Remove")
+        self.title = title
+
+    async def callback(self, interaction):
+        fetch_one = itemsExistInList(title=self.title, user_id=interaction.user.id)
+
+        if not fetch_one:
+            return await interaction.response.send_message("You don't have any items in this to-do list!", ephemeral=True)
+
+        # -- Create response for correct input --
+        embed = discord.Embed(
+            title="What items do you want to remove?",
+            description="Select one or more items to remove from your to-do list.",
+            color=discord.Color.dark_red()
+        )
+
+        view = View()
+        view.add_item(ItemDeleteSelect(user_id=interaction.user.id, title=self.title))
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
 
 class ToDoListButtonsUI(View):
     def __init__(self, title):
         super().__init__(timeout=600, disable_on_timeout=True)  # timeout is in seconds, so 600 = 10 minutes
         self.add_item(AddItemButton(title=title))
+        self.add_item(RemoveItemButton(title=title))
 
 
 class ItemDeleteSelect(Select):
@@ -116,7 +160,11 @@ class ItemDeleteSelect(Select):
             max_amount = len(options)
 
         # -- Set super --
-        super().__init__(options=options, min_values=1, max_values=max_amount)
+        super().__init__(options=options, min_values=1, max_values=max_amount, custom_id="delete")
+
+        # -- Self vars --
+        self.title = title
+        self.user_id = user_id
 
     async def callback(self, interaction):
         await interaction.response.defer()
@@ -129,6 +177,9 @@ class ItemDeleteSelect(Select):
             description=f"Deleted the following: {deletions}",
             color=discord.Color.green()
         )
+        # -- Create response --
+
+        # Disable view
         self.view.disable_all_items()
         await self.view.message.edit(view=self.view)
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -157,7 +208,7 @@ class AddItemModal(Modal):  # https://guide.pycord.dev/interactions/ui-component
         con.commit()  # save changes
 
         # --- Feedback to user ---
-        await self.message.edit(embed=await ToDo.getTableEmbed(title=self.title, user_id=interaction.user.id))
+        await self.message.edit(embed=await getTableEmbed(title=self.title, user_id=interaction.user.id))
         await interaction.response.send_message(f"Added item `{self.children[0].value}`", ephemeral=True)
 
 
@@ -165,22 +216,6 @@ class AddItemModal(Modal):  # https://guide.pycord.dev/interactions/ui-component
 class ToDo(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    # --- Static commands ---
-
-    @staticmethod
-    async def getTableEmbed(title, user_id: int):
-        ref = cur.execute(f"""SELECT * FROM tablesList WHERE title='{title}' AND user_id={user_id}""")
-        description = ref.fetchone()[1]
-
-        return_embed = discord.Embed(title=title, description=description, color=discord.Color.random())
-        ref = cur.execute(f"""SELECT * FROM todoListItems WHERE title='{title}' AND user_id={user_id}""")
-        ref_fetch = ref.fetchall()
-        if ref_fetch:
-            for item in ref_fetch:
-                return_embed.add_field(name=item[2], value=item[3], inline=False)
-
-        return return_embed
 
     # --- Slash Commands ---
 
@@ -208,8 +243,15 @@ class ToDo(commands.Cog):
 
         # -- Create responses --
         await ctx.respond(f"Created the list `{name}`!")
-        await ctx.channel.send(embed=await self.getTableEmbed(name, ctx.user.id),
+        await ctx.channel.send(embed=await getTableEmbed(name, ctx.user.id),
                                view=ToDoListButtonsUI(title=name))
+
+    @to_do_group.command()
+    async def get(self, ctx,
+                  name: discord.Option(str, autocomplete=getAllToDoLists,
+                                       description="The name for your to-do list.")):
+        await ctx.respond(embed=await getTableEmbed(title=name, user_id=ctx.user.id),
+                          view=ToDoListButtonsUI(title=name))
 
     remove_subgroup = to_do_group.create_subgroup(name="remove")
 
@@ -223,7 +265,7 @@ class ToDo(commands.Cog):
         if not fetch_one:
             return await ctx.respond("That to-do list does not exist!", ephemeral=True)
 
-        fetch_one = await itemsExistInList(title=name, user_id=ctx.user.id)
+        fetch_one = itemsExistInList(title=name, user_id=ctx.user.id)
 
         if not fetch_one:
             return await ctx.respond("You don't have any items in this to-do list!", ephemeral=True)
@@ -239,14 +281,7 @@ class ToDo(commands.Cog):
         view.add_item(ItemDeleteSelect(user_id=ctx.user.id, title=name))
         await ctx.respond(embed=embed, view=view)
 
-    @to_do_group.command()
-    async def get(self, ctx,
-                  name: discord.Option(str, autocomplete=getAllToDoLists,
-                                       description="The name for your to-do list.")):
-        await ctx.respond(embed=await self.getTableEmbed(title=name, user_id=ctx.user.id),
-                          view=ToDoListButtonsUI(title=name))
-
-    @to_do_group.command()
+    @remove_subgroup.command()
     async def delete_all_lists(self, ctx):
         button = Button(style=discord.ButtonStyle.danger, label="Yes", emoji="🚮")
         view = View(disable_on_timeout=True, timeout=60)
