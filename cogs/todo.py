@@ -117,15 +117,17 @@ class RemoveItemButton(Button):
     """
     This class is for prompting the remove select menu
     """
+
     def __init__(self, title):
-        super().__init__(emoji="✖", style=discord.ButtonStyle.danger, label="Remove")
+        super().__init__(emoji="✖", style=discord.ButtonStyle.danger, label="Remove Item")
         self.title = title
 
     async def callback(self, interaction):
         fetch_one = itemsExistInList(title=self.title, user_id=interaction.user.id)
 
         if not fetch_one:
-            return await interaction.response.send_message("You don't have any items in this to-do list!", ephemeral=True)
+            return await interaction.response.send_message("You don't have any items in this to-do list!",
+                                                           ephemeral=True)
 
         # -- Create response for correct input --
         embed = discord.Embed(
@@ -149,7 +151,7 @@ class ToDoListButtonsUI(View):
 class ItemDeleteSelect(Select):
     def __init__(self, user_id, title):
         # -- Generate options --
-        options_ref = cur.execute(f"SELECT * FROM todoListItems WHERE title='{title}' AND user_id={user_id}")
+        options_ref = cur.execute(f"SELECT * FROM todoListItems WHERE title=? AND user_id=?", (title, user_id))
         fetch_all = options_ref.fetchall()
         options = [SelectOption(label=shortenLength(option[2], 100), description=shortenLength(option[3], 100)) for
                    option in fetch_all]
@@ -238,7 +240,7 @@ class ToDo(commands.Cog):
 
         # -- Creating the new list --
         cur.execute(f"""INSERT INTO tablesList 
-        VALUES ('{name}', '{description}', {ctx.user.id});""")
+        VALUES (?, ?, ?);""", (name, description, ctx.user.id))
         con.commit()  # save changes
 
         # -- Create responses --
@@ -294,7 +296,7 @@ class ToDo(commands.Cog):
             start_time = time.time()  # Use this to calculate the time it took later
 
             ref = cur.execute(
-                f"SELECT * FROM tablesList WHERE user_id={interaction.user.id}")
+                f"SELECT * FROM tablesList WHERE user_id=?", (interaction.user.id,))
             listsToBeDeleted = ref.fetchall()
             listsToBeDeletedText = ''.join(i[0] + '\n' for i in listsToBeDeleted)
 
@@ -308,9 +310,9 @@ class ToDo(commands.Cog):
 
             # -- Deleting from the database
             cur.execute(
-                f"DELETE FROM tablesList WHERE user_id={interaction.user.id}")  # delete from to-do list database
+                f"DELETE FROM tablesList WHERE user_id=?", (interaction.user.id,))  # delete from to-do list database
             cur.execute(
-                f"DELETE FROM todoListItems WHERE user_id={interaction.user.id}")  # delete from the items for those to-dos
+                f"DELETE FROM todoListItems WHERE user_id=?", (interaction.user.id,))  # delete from the items for those to-dos
             con.commit()
 
             finished_embed = discord.Embed(

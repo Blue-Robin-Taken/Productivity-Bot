@@ -3,7 +3,18 @@ from discord.ext import commands
 # from discord.ui import View, Button, Modal, InputText
 # from discord import InputTextStyle
 import asyncio
+import sqlite3
 
+# --- Setup Timer SQL ---
+con = sqlite3.connect("timers.db")
+cur = con.cursor()
+try:
+    cur.execute("CREATE TABLE timers(title, timestamp, user_id)")
+    print("Created new timers table for timers")
+except sqlite3.OperationalError:
+    print("Found existing table for timers")
+
+# --- Global Vars ---
 SECONDS_PER_OPTION = {
     'seconds': 1,
     'minutes': 60,
@@ -12,7 +23,10 @@ SECONDS_PER_OPTION = {
     'weeks': 604800
 }
 
+
 # def checkIfTimerStopped():
+
+# def updateDatabase
 
 
 class Timers(commands.Cog):
@@ -32,8 +46,16 @@ class Timers(commands.Cog):
             return await ctx.respond("You have to select a time!", ephemeral=True)
 
         await ctx.respond("Your timer has started!", ephemeral=True)
+
+        # -- Log in database --
+        ref = cur.execute("""INSERT INTO """)
+
         # -- Create timer loop --
-        time = seconds + minutes * SECONDS_PER_OPTION['minutes'] + hours * SECONDS_PER_OPTION['hours'] + days * SECONDS_PER_OPTION['days'] + weeks * SECONDS_PER_OPTION['weeks']
+        time = seconds
+        time += minutes * SECONDS_PER_OPTION['minutes']  # Add minutes
+        time += hours * SECONDS_PER_OPTION['hours']  # Add hours
+        time += days * SECONDS_PER_OPTION['days']  # Add days
+        time += weeks * SECONDS_PER_OPTION['weeks']  # Add weeks
         while True:
             time -= 1
             await asyncio.sleep(1)  # Check every second
